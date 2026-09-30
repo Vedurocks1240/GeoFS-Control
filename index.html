@@ -21,8 +21,8 @@
   #stick:before,#stick:after{content:"";position:absolute;background:var(--line);pointer-events:none}
   #stick:before{left:50%;top:12px;bottom:12px;width:1px}#stick:after{top:50%;left:12px;right:12px;height:1px}
   #right{display:grid;grid-template-rows:1fr auto;gap:10px}
-  #btns{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding:8px}
-  button{background:#1c2836;color:var(--fg);border:1px solid var(--line);border-radius:10px;padding:12px 4px;font-size:13px;font-family:inherit}
+  #btns{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;padding:8px}
+  button{background:#1c2836;color:var(--fg);border:1px solid var(--line);border-radius:10px;padding:9px 2px;font-size:12px;font-family:inherit}
   button:active,button.on{background:var(--acc);border-color:var(--acc)}
   button.gy.on{background:var(--ok);border-color:var(--ok);color:#04130a}
   #rud{height:56px}
@@ -114,9 +114,22 @@
   <div id="stick" class="card ta"><div class="lbl">PITCH / ROLL</div><div class="dot"></div></div>
   <div id="right">
     <div id="btns" class="card">
-      <button data-b="gear">Gear</button><button data-b="brakes">Brakes</button><button data-b="airbrake">Spoilers</button>
-      <button data-b="flapsUp">Flaps −</button><button data-b="flapsDn">Flaps +</button><button data-b="autopilot">AP</button>
-      <button data-b="lights">Lights</button><button data-b="pause">Pause</button><button id="gyro" class="gy">Gyro: off</button>
+      <button data-b="gear">Gear</button>
+      <button data-h="brakes">Brakes</button>
+      <button data-b="parking">Park brake</button>
+      <button data-b="airbrake">Airbrake</button>
+      <button data-b="lowerFlaps">Flaps ▼</button>
+      <button data-b="raiseFlaps">Flaps ▲</button>
+      <button data-b="cycleFlaps">Cycle flaps</button>
+      <button data-b="engine">Engine</button>
+      <button data-b="autopilot">Autopilot</button>
+      <button data-b="trimUp">Trim ▲</button>
+      <button data-b="trimDown">Trim ▼</button>
+      <button data-b="trimNeutral">Trim 0</button>
+      <button data-b="accessories">Hook/Floats</button>
+      <button data-b="animPart">Part (X)</button>
+      <button data-h="ptt">Push to talk</button>
+      <button id="gyro" class="gy">Gyro: off</button>
     </div>
     <div id="rud" class="card ta"><div class="lbl" style="top:2px">RUDDER</div><div class="dot"></div></div>
   </div>
@@ -135,7 +148,7 @@ let cfg = {...def};
 try{ cfg = {...def, ...JSON.parse(localStorage.getItem("gpc")||"{}")}; }catch(e){}
 const save = () => { try{ localStorage.setItem("gpc", JSON.stringify(cfg)); }catch(e){} };
 
-const st = { pitch:0, roll:0, yaw:0, throttle:0, gyro:false, rawRoll:0, rawPitch:0, gRoll:0, gPitch:0, have:false };
+const st = { pitch:0, roll:0, yaw:0, throttle:null, gyro:false, rawRoll:0, rawPitch:0, gRoll:0, gPitch:0, have:false };
 
 // ---------- connection ----------
 let conn = null, peer = null;
@@ -205,6 +218,13 @@ drag(rud, (x,y,end) => { if(end){ st.yaw=0; rdot.style.left="50%"; return; }
   st.yaw = clamp((x-.5)*2); rdot.style.left = clamp(x,0.08,0.92)*100+"%"; });
 
 document.querySelectorAll("[data-b]").forEach(b => b.addEventListener("pointerdown", () => { send({t:"btn", name:b.dataset.b}); navigator.vibrate&&navigator.vibrate(15); }));
+// press-and-hold buttons (brakes, push-to-talk)
+document.querySelectorAll("[data-h]").forEach(b => {
+  const up = () => { if(b.classList.contains("on")){ b.classList.remove("on"); send({t:"key", name:b.dataset.h, down:false}); } };
+  b.addEventListener("pointerdown", e => { b.setPointerCapture(e.pointerId); b.classList.add("on"); send({t:"key", name:b.dataset.h, down:true}); navigator.vibrate&&navigator.vibrate(15); });
+  b.addEventListener("pointerup", up); b.addEventListener("pointercancel", up);
+  b.style.touchAction="none";
+});
 
 // ---------- gyroscope / motion ----------
 function screenAngle(){ return (screen.orientation && typeof screen.orientation.angle==="number") ? screen.orientation.angle : (window.orientation||0); }
