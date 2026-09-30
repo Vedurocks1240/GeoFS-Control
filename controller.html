@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover">
+<title>GeoFS Controller</title>
+<style>
+  :root{--bg:#0b1118;--panel:#141d27;--line:#2b3a4a;--fg:#e6edf3;--mut:#8aa0b5;--acc:#3b9cff;--ok:#3fb950}
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;touch-action:none;user-select:none}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font:14px system-ui,sans-serif;overflow:hidden}
+  #app{height:100%;display:grid;grid-template-columns:90px 1fr 1fr;gap:10px;padding:10px;
+       padding-left:max(10px,env(safe-area-inset-left));padding-right:max(10px,env(safe-area-inset-right))}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;position:relative}
+  .lbl{position:absolute;top:6px;left:0;right:0;text-align:center;color:var(--mut);font-size:11px;letter-spacing:.08em}
+  #thr .fill{position:absolute;left:0;right:0;bottom:0;background:linear-gradient(#3b9cff,#1d5fa8);border-radius:0 0 13px 13px;height:0}
+  #thr .val{position:absolute;top:50%;left:0;right:0;text-align:center;font-size:20px;font-weight:700;mix-blend-mode:difference}
+  #stick .dot{position:absolute;width:64px;height:64px;margin:-32px;border-radius:50%;background:var(--acc);left:50%;top:50%;box-shadow:0 0 20px #3b9cff88}
+  #stick:before,#stick:after{content:"";position:absolute;background:var(--line)}
+  #stick:before{left:50%;top:12px;bottom:12px;width:1px}#stick:after{top:50%;left:12px;right:12px;height:1px}
+  #right{display:grid;grid-template-rows:1fr auto;gap:10px}
+  #btns{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding:8px}
+  button{background:#1c2836;color:var(--fg);border:1px solid var(--line);border-radius:10px;padding:12px 4px;font-size:13px}
+  button:active,button.on{background:var(--acc);border-color:var(--acc)}
+  #rud{height:56px}
+  #rud .dot{position:absolute;top:50%;left:50%;width:48px;height:40px;margin:-20px;border-radius:10px;background:var(--acc)}
+  #top{position:fixed;top:4px;left:50%;transform:translateX(-50%);font-size:12px;color:var(--mut);z-index:5;pointer-events:none}
+  #cover{position:fixed;inset:0;background:var(--bg);z-index:10;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;text-align:center;padding:24px}
+  #cover button{background:var(--acc);border-color:var(--acc);padding:14px 28px;font-size:16px}
+  #hint{font-size:11px;color:var(--mut)}
+</style>
+</head>
+<body>
+<div id="top">connecting…</div>
+<div id="cover">
+  <h2 style="margin:0">GeoFS Controller</h2>
+  <div id="cmsg">Scan the QR code shown on the GeoFS tab.</div>
+  <button id="go" style="display:none">Connect</button>
+  <div id="hint">Use landscape orientation.</div>
+</div>
+
+<div id="app">
+  <div id="thr" class="card" style="overflow:hidden"><div class="lbl">THROTTLE</div><div class="fill"></div><div class="val">0%</div></div>
+  <div id="stick" class="card"><div class="lbl">PITCH / ROLL</div><div class="dot"></div></div>
+  <div id="right">
+    <div id="btns" class="card">
+      <button data-b="gear">Gear</button><button data-b="brakes">Brakes</button><button data-b="airbrake">Spoilers</button>
+      <button data-b="flapsUp">Flaps −</button><button data-b="flapsDn">Flaps +</button><button data-b="autopilot">AP</button>
+      <button data-b="lights">Lights</button><button data-b="pause">Pause</button><button id="tilt">Tilt: off</button>
+    </div>
+    <div id="rud" class="card"><div class="lbl" style="top:2px">RUDDER</div><div class="dot"></div></div>
+  </div>
+</div>
+
+<script src="peerjs.min.js"></script>
+<script>
+const $ = s => document.querySelector(s);
+const peerId = location.hash.slice(1);
+const cover = $("#cover"), top_ = $("#top");
+let conn = null, peer = null;
+const st = { pitch:0, roll:0, yaw:0, throttle:0, tilt:false, tiltP:0, tiltR:0 };
+const clamp = (v,a=-1,b=1) => Math.min(b, Math.max(a, v));
+
+// ---- connect ----
+function connect(){
+  if(!peerId){ $("#cmsg").textContent = "No pairing code. Scan the QR code on the GeoFS tab."; return; }
+  $("#cmsg").textContent = "Connecting…";
+  peer = new Peer();
+  peer.on("open", () => {
+    conn = peer.connect(peerId, { reliable:false });
+    conn.on("open", () => { cover.style.display="none"; top_.textContent="connected ✔"; top_.style.color="var(--ok)"; keepAwake(); });
+    conn.on("close", () => { top_.textContent="disconnected"; cover.style.display="flex"; $("#cmsg").textContent="Connection lost."; $("#go").style.display="inline-block"; });
+    conn.on("error", e => { $("#cmsg").textContent = "Error: "+e; });
+  });
+  peer.on("error", e => { $("#cmsg").textContent = "Error: "+e.type; $("#go").style.display="inline-block"; });
+}
+$("#go").onclick = connect;
+connect();
+
+async function keepAwake(){ try{ await navigator.wakeLock.request("screen"); }catch(e){} }
+
+// ---- helpers for touch areas ----
+function drag(el, fn){
+  let id=null;
+  const r = e => { const b=el.getBoundingClientRect(); fn((e.clientX-b.left)/b.width, (e.clientY-b.top)/b.height, false); };
+  el.addEventListener("pointerdown", e => { id=e.pointerId; el.setPointerCapture(id); r(e); });
+  el.addEventListener("pointermove", e => { if(e.pointerId===id) r(e); });
+  const end = e => { if(e.pointerId===id){ id=null; fn(null,null,true); } };
+  el.addEventListener("pointerup", end); el.addEventListener("pointercancel", end);
+}
+
+// throttle (stays where you leave it)
+const thr = $("#thr");
+drag(thr, (x,y,end) => { if(end) return; st.throttle = clamp(1-y,0,1);
+  thr.querySelector(".fill").style.height = st.throttle*100+"%";
+  thr.querySelector(".val").textContent = Math.round(st.throttle*100)+"%"; });
+
+// stick (springs back to centre). Up = pull back / nose up? Up on screen = nose down (like a yoke push)
+const stick = $("#stick"), sdot = stick.querySelector(".dot");
+drag(stick, (x,y,end) => {
+  if(end){ st.roll=0; st.pitch=0; sdot.style.left="50%"; sdot.style.top="50%"; return; }
+  st.roll = clamp((x-.5)*2); st.pitch = clamp((y-.5)*2);   // drag down = pull back = nose up
+  sdot.style.left = clamp(x,0.05,0.95)*100+"%"; sdot.style.top = clamp(y,0.05,0.95)*100+"%";
+});
+
+// rudder
+const rud = $("#rud"), rdot = rud.querySelector(".dot");
+drag(rud, (x,y,end) => { if(end){ st.yaw=0; rdot.style.left="50%"; return; }
+  st.yaw = clamp((x-.5)*2); rdot.style.left = clamp(x,0.08,0.92)*100+"%"; });
+
+// buttons
+function send(m){ if(conn && conn.open) conn.send(m); }
+document.querySelectorAll("[data-b]").forEach(b => b.addEventListener("pointerdown", () => { send({t:"btn", name:b.dataset.b}); navigator.vibrate&&navigator.vibrate(15); }));
+
+// tilt steering (optional)
+$("#tilt").addEventListener("click", async e => {
+  if(!st.tilt){
+    try{ if(typeof DeviceOrientationEvent!=="undefined" && DeviceOrientationEvent.requestPermission){
+           if(await DeviceOrientationEvent.requestPermission()!=="granted") return; }
+    }catch(err){ return; }
+    st.tilt = true; e.target.textContent="Tilt: on"; e.target.classList.add("on");
+  } else { st.tilt=false; st.tiltP=st.tiltR=0; e.target.textContent="Tilt: off"; e.target.classList.remove("on"); }
+});
+window.addEventListener("deviceorientation", e => {
+  if(!st.tilt) return;
+  // landscape: gamma ≈ pitch axis, beta ≈ roll axis (swap if your phone feels reversed)
+  const land = (screen.orientation && screen.orientation.angle) || 0;
+  const s = land===270 ? -1 : 1;
+  st.tiltP = clamp(s*(e.gamma||0)/35);
+  st.tiltR = clamp(s*(e.beta||0)/35);
+});
+
+// send loop ~30 Hz
+setInterval(() => {
+  if(!(conn && conn.open)) return;
+  const tp = st.tilt ? st.tiltP : 0, tr = st.tilt ? st.tiltR : 0;
+  send({ t:"axes", pitch: clamp(st.pitch+tp), roll: clamp(st.roll+tr), yaw: st.yaw, throttle: st.throttle });
+}, 33);
+</script>
+</body>
+</html>
